@@ -19,7 +19,7 @@ strategy:
   use_covered_calls: false       # Requires 100-share lots
 
   use_ai_filter: true
-  ai_confidence_threshold: 0.70  # Only trade if AI is 70%+ confident
+  ai_confidence_threshold: 0.60  # Only trade if AI is 70%+ confident
 
   stock_watchlist:
     - SPY

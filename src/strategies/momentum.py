@@ -126,19 +126,16 @@ class MomentumStrategy:
         passed = sum(conditions.values())
         total = len(conditions)
 
-        if passed < 5:  # Need at least 5/6 conditions
-            logger.debug(
-                f"{symbol}: Momentum failed ({passed}/{total}) — "
-                f"{[k for k,v in conditions.items() if not v]}"
-            )
+        if passed < 4:  # Need at least 4/6 conditions
+            logger.debug(f"{symbol}: Momentum failed ({passed}/{total}) -- {[k for k,v in conditions.items() if not v]}")
             return None
 
-        # ── Signal confirmed — calculate trade levels ───────────────
+        # ── Signal confirmed -- calculate trade levels ───────────────
         stop_loss = sma20 * 0.98      # 2% below SMA20 (structure support)
         take_profit = price * 1.04    # 4% target (2:1 risk/reward)
 
         # Calculate position size (will be refined by risk manager)
-        quantity = 1  # Placeholder — risk manager calculates real size
+        quantity = 1  # Placeholder -- risk manager calculates real size
 
         reasoning = (
             f"Momentum setup: price ${price:.2f} above SMA20 ${sma20:.2f} and "
@@ -147,7 +144,7 @@ class MomentumStrategy:
             f"Pulling back to EMA20 ${ema20:.2f} in uptrend."
         )
 
-        logger.info(f"✨ Momentum signal: BUY {symbol} @ ${price:.2f}")
+        logger.info(f"[SIGNAL] Momentum signal: BUY {symbol} @ ${price:.2f}")
         return TradeSignal(
             symbol=symbol,
             direction="BUY",

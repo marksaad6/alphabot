@@ -10,11 +10,11 @@ How it works:
   2. Sell a PUT option below the current price (out-of-the-money)
   3. Collect premium (income) immediately
   4. Two outcomes:
-     a. Stock stays above your strike → option expires worthless → you keep all premium ✅
-     b. Stock drops below strike → you buy the stock at a discount (you already wanted it) ✅
+     a. Stock stays above your strike → option expires worthless → you keep all premium [OK]
+     b. Stock drops below strike → you buy the stock at a discount (you already wanted it) [OK]
 
 Target: Sell puts with:
-  - 30–45 DTE (days to expiration) — sweet spot for theta decay
+  - 30–45 DTE (days to expiration) -- sweet spot for theta decay
   - Delta ~0.20–0.30 (20–30% chance of being assigned = 70–80% win rate baseline)
   - On high-quality large-cap stocks with strong support levels
 
@@ -96,11 +96,9 @@ class ThetaOptionsStrategy:
                 symbol=symbol,
                 contractType="PUT",
                 strikeCount=10,
-                includeQuotes=True,
                 strategy="SINGLE",
-                daysToExpiration=37,  # Target ~37 DTE
-                expMonth="ALL",
-                optionType="S",  # Standard options
+                daysToExpiration=37,
+                optionType="S",
             ).json()
         except Exception as e:
             logger.debug(f"Could not fetch options chain for {symbol}: {e}")
@@ -172,7 +170,7 @@ class ThetaOptionsStrategy:
         )
 
         logger.info(
-            f"✨ Theta signal: SELL PUT {symbol} "
+            f"[SIGNAL] Theta signal: SELL PUT {symbol} "
             f"${best_option['strike']:.0f} exp {best_option['expiration']} "
             f"@ ${best_option['premium']:.2f}"
         )

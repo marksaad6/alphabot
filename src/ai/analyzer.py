@@ -1,18 +1,17 @@
 """
 src/ai/analyzer.py
 ------------------
-Uses the Anthropic Claude API to validate trading signals.
+Uses Claude AI to validate trading signals before execution.
 
-Before executing any trade, we send Claude:
-  - The signal (buy/sell, symbol, strategy reasoning)
-  - Recent price action (last 5 days of OHLCV)
-  - Recent % change and volume trend
+If Anthropic credits run out mid-session, automatically switches to a
+rule-based fallback so the bot never freezes or crashes.
 
-Claude returns a confidence score (0–1) and reasoning.
-We only execute trades where confidence >= threshold (default: 0.70).
-
-This is the AI "second opinion" layer that filters out weak signals
-and is the key to pushing win rate toward 75%+.
+Fallback rules (no AI):
+  - Signal must have stop loss <= 3% risk
+  - Signal must have 2:1 reward/risk ratio minimum
+  - Volume must be above average (already checked by strategy)
+  - Confidence returned = 0.65 (below default 0.70 threshold = won't trade)
+    unless you lower ai_confidence_threshold in settings.yaml to 0.60
 """
 
 import logging
@@ -21,43 +20,51 @@ from dataclasses import dataclass
 from anthropic import Anthropic
 
 from config.settings import AIConfig
+from src.ai.credit_monitor import CreditMonitor
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class AIAnalysis:
-    """Result from the AI signal review."""
-    confidence: float       # 0.0 to 1.0
-    reasoning: str          # Human-readable explanation
-    risk_factors: list      # List of identified risks
-    recommended_action: str # "EXECUTE", "SKIP", or "REDUCE_SIZE"
+    confidence: float
+    reasoning: str
+    risk_factors: list
+    recommended_action: str
+    used_fallback: bool = False
 
 
 class AIAnalyzer:
     """
-    Claude-powered trade signal validator.
-
-    Sends each candidate trade to Claude for analysis.
-    Returns a confidence score and reasoning.
+    Claude-powered trade signal validator with automatic fallback.
     """
 
     def __init__(self, config: AIConfig):
         self.config = config
         self.client = Anthropic(api_key=config.api_key)
-        logger.info("AI Analyzer initialized (Claude)")
+        self.credit_monitor = CreditMonitor(api_key=config.api_key)
+
+        # Check credits immediately on startup
+        status = self.credit_monitor.check(force=True)
+        if status.fallback_active:
+            logger.warning(
+                "AI Analyzer starting in FALLBACK mode -- no Anthropic credits. "
+                "Add credits at console.anthropic.com/settings/billing"
+            )
+        else:
+            logger.info("AI Analyzer initialized (Claude)")
 
     def analyze_signal(self, signal, schwab_client) -> AIAnalysis:
         """
-        Main method: analyze a trade signal and return AI assessment.
-
-        Args:
-            signal: TradeSignal object from a strategy
-            schwab_client: For fetching additional market context
-
-        Returns:
-            AIAnalysis with confidence score and reasoning
+        Analyze a trade signal. Uses Claude if credits available,
+        falls back to rule-based analysis if not.
         """
+        # Re-check credits every 30 min automatically
+        status = self.credit_monitor.check()
+
+        if status.fallback_active:
+            return self._fallback_analysis(signal)
+
         # Fetch recent price history for context
         try:
             candles = schwab_client.get_price_history(
@@ -65,17 +72,15 @@ class AIAnalyzer:
                 period_type="day",
                 period=self.config.context_lookback_days,
                 frequency_type="minute",
-                frequency=30,  # 30-minute candles
+                frequency=30,
             )
             price_summary = self._summarize_candles(candles)
         except Exception as e:
             logger.warning(f"Could not fetch price history for AI context: {e}")
             price_summary = "Price history unavailable"
 
-        # Build the prompt
         prompt = self._build_prompt(signal, price_summary)
 
-        # Call Claude
         try:
             response = self.client.messages.create(
                 model=self.config.model,
@@ -83,20 +88,74 @@ class AIAnalyzer:
                 system=self._system_prompt(),
                 messages=[{"role": "user", "content": prompt}],
             )
-
-            # Parse Claude's JSON response
-            raw = response.content[0].text
-            return self._parse_response(raw)
+            return self._parse_response(response.content[0].text)
 
         except Exception as e:
+            error_str = str(e).lower()
+            # Detect credit exhaustion mid-session
+            if "credit balance is too low" in error_str or "insufficient" in error_str:
+                logger.error(
+                    "[CREDIT EMPTY] Ran out of Anthropic credits mid-session! "
+                    "Switching to rule-based fallback for remainder of session. "
+                    "Add credits at: console.anthropic.com/settings/billing"
+                )
+                # Force the monitor into fallback mode
+                self.credit_monitor._status.fallback_active = True
+                self.credit_monitor._status.is_empty = True
+                return self._fallback_analysis(signal)
+
             logger.error(f"AI analysis failed: {e}")
-            # On failure, return low-confidence to be safe (fail closed)
+            # On unknown failure, return low confidence (fail safe = don't trade)
             return AIAnalysis(
                 confidence=0.0,
                 reasoning=f"AI analysis failed: {e}",
                 risk_factors=["AI unavailable"],
                 recommended_action="SKIP",
             )
+
+    def _fallback_analysis(self, signal) -> AIAnalysis:
+        """
+        Rule-based signal analysis used when Claude is unavailable.
+
+        Conservative rules -- only approves high-quality setups:
+          - Risk per trade must be <= 3%
+          - Reward must be at least 2x the risk (2:1 R/R)
+          - Returns confidence 0.65 by default (just below 0.70 threshold)
+            so trades are skipped unless you lower the threshold in settings.yaml
+        """
+        risk_factors = ["AI fallback mode -- Claude unavailable"]
+        confidence = 0.0
+        action = "SKIP"
+
+        risk_pct = signal.stop_loss_pct
+        reward_pct = signal.take_profit_pct
+        rr_ratio = reward_pct / risk_pct if risk_pct > 0 else 0
+
+        if risk_pct > 0.03:
+            reasoning = f"Fallback SKIP: risk {risk_pct:.1%} exceeds 3% limit"
+        elif rr_ratio < 1.5:
+            reasoning = f"Fallback SKIP: R/R ratio {rr_ratio:.1f} below 1.5 minimum"
+        else:
+            # Meets basic criteria -- approve at reduced confidence
+            confidence = 0.65
+            action = "REDUCE_SIZE"
+            reasoning = (
+                f"Fallback APPROVE (no AI): risk {risk_pct:.1%}, "
+                f"R/R {rr_ratio:.1f}x. Trade size reduced as precaution."
+            )
+
+        logger.info(
+            f"[FALLBACK] {signal.symbol}: {action} "
+            f"(risk={risk_pct:.1%}, R/R={rr_ratio:.1f}x)"
+        )
+
+        return AIAnalysis(
+            confidence=confidence,
+            reasoning=reasoning,
+            risk_factors=risk_factors,
+            recommended_action=action,
+            used_fallback=True,
+        )
 
     def _system_prompt(self) -> str:
         return """You are an expert stock and options trader with 20 years of experience.
@@ -123,7 +182,7 @@ Rules:
 
 SIGNAL DETAILS:
 - Symbol: {signal.symbol}
-- Direction: {signal.direction} (BUY or SELL)
+- Direction: {signal.direction}
 - Strategy: {signal.strategy_name}
 - Entry Price: ${signal.entry_price:.2f}
 - Stop Loss: ${signal.stop_loss:.2f} ({signal.stop_loss_pct:.1%} risk)
@@ -137,11 +196,8 @@ RECENT PRICE ACTION (last 5 days):
 Should I execute this trade? Respond with JSON only."""
 
     def _summarize_candles(self, candles: list) -> str:
-        """Convert raw candle data into a readable summary for the AI."""
         if not candles:
             return "No data available"
-
-        # Take last 10 candles max to keep prompt short
         recent = candles[-10:]
         lines = []
         for c in recent:
@@ -150,28 +206,20 @@ Should I execute this trade? Respond with JSON only."""
                 f"Low: ${c['low']:.2f} | Close: ${c['close']:.2f} | "
                 f"Vol: {c['volume']:,}"
             )
-
-        # Compute overall trend
         if len(candles) >= 2:
-            first_close = candles[0]["close"]
-            last_close = candles[-1]["close"]
-            change = (last_close - first_close) / first_close
+            change = (candles[-1]["close"] - candles[0]["close"]) / candles[0]["close"]
             trend = f"Overall trend: {change:+.1%} over {len(candles)} candles"
         else:
             trend = "Insufficient data for trend"
-
         return trend + "\n" + "\n".join(lines)
 
     def _parse_response(self, raw: str) -> AIAnalysis:
-        """Parse Claude's JSON response into an AIAnalysis object."""
-        # Strip markdown code fences if present
         clean = raw.strip()
         if clean.startswith("```"):
             clean = clean.split("```")[1]
             if clean.startswith("json"):
                 clean = clean[4:]
         clean = clean.strip()
-
         data = json.loads(clean)
         return AIAnalysis(
             confidence=float(data.get("confidence", 0.0)),

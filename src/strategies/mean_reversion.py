@@ -81,15 +81,15 @@ class MeanReversionStrategy:
             return None
 
         conditions = {
-            "long_term_uptrend": price > latest["sma200"],
-            "short_term_oversold": rsi < 35,
-            "recent_decline": return_3d < -0.03,          # Down 3%+ in 3 days
+            "long_term_uptrend": price > latest["sma200"] * 0.90,  # Within 10% of SMA200 (loosened)
+            "short_term_oversold": rsi < 45,  # Loosened from 35 to catch broader pullbacks
+            "recent_decline": return_3d < -0.02,          # Down 2%+ in 3 days (loosened from 3%)
             "bollinger_lower": price <= latest["bb_lower"] * 1.01,  # Near lower band
         }
 
         passed = sum(conditions.values())
 
-        if passed < 3:
+        if passed < 2:  # Only need 2/4 conditions in current weak market
             return None
 
         # Reversion target = back to Bollinger midline
@@ -103,7 +103,7 @@ class MeanReversionStrategy:
             f"Long-term uptrend intact (above SMA200 ${latest['sma200']:.2f})."
         )
 
-        logger.info(f"✨ Mean reversion signal: BUY {symbol} @ ${price:.2f}")
+        logger.info(f"[SIGNAL] Mean reversion signal: BUY {symbol} @ ${price:.2f}")
         return TradeSignal(
             symbol=symbol,
             direction="BUY",

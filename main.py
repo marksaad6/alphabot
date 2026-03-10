@@ -12,6 +12,8 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -57,7 +59,7 @@ def main():
 
     if args.mode == "live":
         # Safety confirmation for live trading
-        print("\n⚠️  WARNING: You are about to start LIVE trading with REAL money.")
+        print("\n[WARN]  WARNING: You are about to start LIVE trading with REAL money.")
         print("   Make sure you have tested in paper mode first.")
         confirm = input("   Type 'YES I UNDERSTAND' to continue: ")
         if confirm != "YES I UNDERSTAND":

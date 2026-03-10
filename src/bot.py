@@ -26,6 +26,7 @@ from src.strategies.options_theta import ThetaOptionsStrategy
 from src.risk_manager import RiskManager
 from src.portfolio import Portfolio
 from src.utils.market_hours import is_market_open, next_market_open
+from src.session_logger import SessionLogger
 
 
 logger = logging.getLogger(__name__)
@@ -60,11 +61,15 @@ class TradingBot:
         self.strategies = self._load_strategies()
         logger.info(f"Loaded {len(self.strategies)} strategies: "
                     f"{[s.__class__.__name__ for s in self.strategies]}")
+        logger.info(f"AI status: {self.ai.credit_monitor.get_status_summary()}")
 
         # Track daily stats
         self.daily_trades = 0
         self.daily_wins = 0
         self.daily_losses = 0
+
+        # Session logger
+        self.session_logger = SessionLogger(mode=settings.mode)
 
     def _load_strategies(self):
         """Instantiate strategies based on settings."""
@@ -113,7 +118,7 @@ class TradingBot:
             logger.debug(f"Market closed. Next open: {next_open}")
             return
 
-        logger.info("─── Running scan cycle ───────────────────────────────")
+        logger.info("--- Running scan cycle ---")
 
         # ── Step 2: Refresh portfolio state ────────────────────────
         self.portfolio.refresh()
@@ -154,11 +159,11 @@ class TradingBot:
                     signal.ai_confidence = analysis.confidence
                     signal.ai_reasoning = analysis.reasoning
                     validated_signals.append(signal)
-                    logger.info(f"✅ AI approved {signal.symbol} ({signal.direction}) "
-                               f"— confidence: {analysis.confidence:.0%}")
+                    logger.info(f"[OK] AI approved {signal.symbol} ({signal.direction}) "
+                               f"-- confidence: {analysis.confidence:.0%}")
                 else:
-                    logger.info(f"❌ AI rejected {signal.symbol} "
-                               f"— confidence: {analysis.confidence:.0%}")
+                    logger.info(f"[NO] AI rejected {signal.symbol} "
+                               f"-- confidence: {analysis.confidence:.0%}")
         else:
             validated_signals = all_signals
 
@@ -169,7 +174,7 @@ class TradingBot:
             if approval.approved:
                 approved_signals.append(signal)
             else:
-                logger.info(f"🚫 Risk rejected {signal.symbol}: {approval.reason}")
+                logger.info(f"[BLOCKED] Risk rejected {signal.symbol}: {approval.reason}")
 
         # ── Step 7: Execute approved trades ────────────────────────
         for signal in approved_signals:
@@ -184,7 +189,7 @@ class TradingBot:
             order = self.client.place_order(signal)
             self.daily_trades += 1
             logger.info(
-                f"📈 ORDER PLACED: {signal.direction} {signal.quantity}x {signal.symbol} "
+                f"[CHART] ORDER PLACED: {signal.direction} {signal.quantity}x {signal.symbol} "
                 f"@ ~${signal.entry_price:.2f} | "
                 f"SL: ${signal.stop_loss:.2f} | TP: ${signal.take_profit:.2f} | "
                 f"Mode: {'PAPER' if self.settings.is_paper else 'LIVE'}"
@@ -208,7 +213,7 @@ class TradingBot:
             # Stop loss hit
             if pnl_pct <= -self.settings.risk.stop_loss_pct:
                 logger.warning(
-                    f"🔴 STOP LOSS: Closing {position.symbol} at ${current_price:.2f} "
+                    f"[RED] STOP LOSS: Closing {position.symbol} at ${current_price:.2f} "
                     f"(loss: {pnl_pct:.1%})"
                 )
                 self.client.close_position(position)
@@ -217,7 +222,7 @@ class TradingBot:
             # Take profit hit
             elif pnl_pct >= self.settings.risk.take_profit_pct:
                 logger.info(
-                    f"🟢 TAKE PROFIT: Closing {position.symbol} at ${current_price:.2f} "
+                    f"[GREEN] TAKE PROFIT: Closing {position.symbol} at ${current_price:.2f} "
                     f"(gain: {pnl_pct:.1%})"
                 )
                 self.client.close_position(position)
@@ -236,7 +241,7 @@ class TradingBot:
         to avoid overnight risk (configurable).
         """
         logger.info("End-of-day review (15 min before close)...")
-        # For now just log — can add "close all" logic here
+        # For now just log -- can add "close all" logic here
         total = self.daily_wins + self.daily_losses
         if total > 0:
             win_rate = self.daily_wins / total
@@ -245,4 +250,5 @@ class TradingBot:
     def shutdown(self):
         """Gracefully stop the bot."""
         self.running = False
+        self.session_logger.print_shutdown_summary()
         logger.info("AlphaBot shutting down. Goodbye.")

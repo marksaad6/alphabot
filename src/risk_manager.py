@@ -103,7 +103,7 @@ class RiskManager:
         # ── Rule 5: PDT warning (informational, not blocking) ───────
         if portfolio_value < 25_000:
             logger.warning(
-                "⚠️  PDT Warning: Account under $25K. "
+                "[WARN]  PDT Warning: Account under $25K. "
                 "Limit to 3 day trades per rolling 5-day window. "
                 "Consider swing trades (hold >1 day) to avoid PDT restriction."
             )
@@ -113,7 +113,7 @@ class RiskManager:
 
         trade_value = quantity * signal.entry_price
         logger.info(
-            f"✅ Risk approved: {signal.symbol} | "
+            f"[OK] Risk approved: {signal.symbol} | "
             f"Qty: {quantity} | Value: ${trade_value:.0f} | "
             f"Max loss: ${quantity * risk_per_share:.0f}"
         )
