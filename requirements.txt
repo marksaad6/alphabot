@@ -1,0 +1,28 @@
+# AlphaBot - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Schwab API
+schwabdev>=2.0.0          # Charles Schwab API wrapper
+
+# AI / LLM
+anthropic>=0.40.0         # Claude API for signal validation
+
+# Data & Analysis
+pandas>=2.0.0
+numpy>=1.26.0
+pandas-ta>=0.3.14b        # Technical indicators (RSI, MACD, Bollinger Bands, etc.)
+
+# Scheduling
+schedule>=1.2.0           # Job scheduler for running cycles
+
+# Configuration
+pyyaml>=6.0               # YAML config file support
+python-dotenv>=1.0.0      # Load .env file for credentials
+
+# Utilities
+pytz>=2024.1              # Timezone handling for market hours
+requests>=2.32.0          # HTTP (used by schwabdev internally)
+
+# Development / Testing
+pytest>=8.0.0
+pytest-mock>=3.12.0

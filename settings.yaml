@@ -1,0 +1,36 @@
+# config/settings.yaml
+# ---------------------
+# Tune your bot's behavior here.
+# All values here override the defaults in config/settings.py
+
+risk:
+  max_position_size_pct: 0.05    # 5% of portfolio per trade
+  max_total_exposure_pct: 0.50   # Max 50% of portfolio deployed at once
+  stop_loss_pct: 0.02            # 2% stop loss
+  take_profit_pct: 0.04          # 4% take profit
+  max_daily_trades: 5            # Max 5 new entries per day
+  min_cash_reserve: 500.0        # Always keep $500 cash
+
+strategy:
+  use_momentum: true
+  use_mean_reversion: true
+  use_cash_secured_puts: true
+  use_long_calls: false          # Riskier — enable later
+  use_covered_calls: false       # Requires 100-share lots
+
+  use_ai_filter: true
+  ai_confidence_threshold: 0.70  # Only trade if AI is 70%+ confident
+
+  stock_watchlist:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMZN
+    - GOOGL
+    - META
+    - TSLA
+    - AMD
+
+  min_avg_volume: 1000000        # Filter out thinly traded stocks
