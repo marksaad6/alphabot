@@ -71,7 +71,7 @@ alphabot/
 ### 2. Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/alphabot.git
+git clone https://github.com/marksaad6/alphabot.git
 cd alphabot
 python -m venv .venv
 
@@ -339,3 +339,4 @@ All trades saved to `logs/trades.csv`. All sessions saved to `logs/sessions.csv`
 ---
 
 *Built with Schwab API + Claude AI*
+
