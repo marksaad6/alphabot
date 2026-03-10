@@ -1,0 +1,206 @@
+"""
+src/strategies/options_calls.py
+--------------------------------
+Long Calls Strategy: Buy call options for leveraged directional bets.
+
+When to use this vs cash-secured puts:
+    - Use LONG CALLS when you expect a strong move UP in a short time
+    - Use CASH-SECURED PUTS for steady income regardless of direction
+
+Risk profile:
+    - Max loss = premium paid (e.g. $300 per contract)
+    - Max gain = unlimited (leveraged upside)
+    - Win rate lower (~45-55%) but wins are much larger (2x-5x)
+
+Best setups:
+    - Stock breaking out of consolidation with volume
+    - Earnings catalyst coming (buy before earnings -- risky but high reward)
+    - Market-wide momentum day (buy QQQ/SPY calls)
+
+Settings (config/settings.yaml):
+    use_long_calls: true
+    long_calls_dte_min: 21           # Min days to expiration (never buy <21 DTE)
+    long_calls_dte_max: 60           # Max days to expiration
+    long_calls_delta_min: 0.35       # Min delta (not too far OTM)
+    long_calls_delta_max: 0.55       # Max delta (near ATM for balance)
+    long_calls_max_premium: 500      # Max premium per contract ($500)
+    long_calls_profit_target: 0.50   # Close at 50% gain
+    long_calls_stop_loss: 0.30       # Close at 30% loss
+"""
+
+import logging
+from typing import Optional
+from dataclasses import dataclass
+from src.strategies.momentum import TradeSignal
+from src.strategies.options_theta import OptionsSignal
+
+logger = logging.getLogger(__name__)
+
+
+class LongCallsStrategy:
+    """
+    Buys call options on stocks showing strong breakout signals.
+    Uses 21-60 DTE options at 0.35-0.55 delta (near-the-money).
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.dte_min       = getattr(config, 'long_calls_dte_min', 21)
+        self.dte_max       = getattr(config, 'long_calls_dte_max', 60)
+        self.delta_min     = getattr(config, 'long_calls_delta_min', 0.35)
+        self.delta_max     = getattr(config, 'long_calls_delta_max', 0.55)
+        self.max_premium   = getattr(config, 'long_calls_max_premium', 500)
+        self.profit_target = getattr(config, 'long_calls_profit_target', 0.50)
+        self.stop_loss     = getattr(config, 'long_calls_stop_loss', 0.30)
+        logger.info("LongCallsStrategy initialized (directional options)")
+
+    def scan(self, symbols: list[str], client) -> list[TradeSignal]:
+        signals = []
+        for symbol in symbols:
+            try:
+                # First check if stock has a breakout setup
+                if not self._has_breakout(symbol, client):
+                    continue
+                signal = self._find_call_to_buy(symbol, client)
+                if signal:
+                    signals.append(signal)
+            except Exception as e:
+                logger.warning(f"LongCalls error on {symbol}: {e}")
+        return signals
+
+    def _has_breakout(self, symbol: str, client) -> bool:
+        """
+        Check if stock is breaking out of consolidation.
+        Breakout = price making new 20-day high on above-average volume.
+        """
+        import pandas as pd
+
+        candles = client.get_price_history(
+            symbol=symbol,
+            period_type="month",
+            period=2,
+            frequency_type="daily",
+            frequency=1,
+        )
+
+        if len(candles) < 22:
+            return False
+
+        df = pd.DataFrame(candles)
+        df = df.sort_values("datetime").reset_index(drop=True)
+
+        latest   = df.iloc[-1]
+        prior    = df.iloc[-22:-1]  # Previous 21 days
+
+        price         = latest["close"]
+        prior_high    = prior["high"].max()
+        volume        = latest["volume"]
+        avg_volume    = prior["volume"].mean()
+
+        is_breakout = (
+            price > prior_high and          # New 20-day high
+            volume > avg_volume * 1.5       # 50% above average volume
+        )
+
+        if is_breakout:
+            logger.debug(f"{symbol}: Breakout detected (new high ${price:.2f}, "
+                        f"vol {volume/avg_volume:.1f}x avg)")
+
+        return is_breakout
+
+    def _find_call_to_buy(self, symbol: str, client) -> Optional[OptionsSignal]:
+        """Find the best call option to buy for a breakout setup."""
+        try:
+            chain = client._client.option_chains(
+                symbol=symbol,
+                contractType="CALL",
+                strikeCount=8,
+                strategy="SINGLE",
+                optionType="S",
+            ).json()
+        except Exception as e:
+            logger.debug(f"Could not fetch call chain for {symbol}: {e}")
+            return None
+
+        underlying_price = chain.get("underlyingPrice", 0)
+        if not underlying_price:
+            return None
+
+        call_map = chain.get("callExpDateMap", {})
+        best_option = None
+        best_score  = 0
+
+        for exp_date, strikes in call_map.items():
+            dte = int(exp_date.split(":")[1]) if ":" in exp_date else 0
+            if not (self.dte_min <= dte <= self.dte_max):
+                continue
+
+            for strike_str, options in strikes.items():
+                option = options[0] if options else {}
+                delta  = abs(option.get("delta", 0))
+                ask    = option.get("ask", 0)
+                volume = option.get("totalVolume", 0)
+
+                if ask <= 0 or delta == 0:
+                    continue
+
+                premium_cost = ask * 100  # Cost per contract
+
+                if premium_cost > self.max_premium:
+                    continue
+
+                if self.delta_min <= delta <= self.delta_max:
+                    # Score: prefer higher delta and more volume
+                    score = delta * volume
+                    if score > best_score:
+                        best_score = score
+                        best_option = {
+                            "option_symbol": option.get("symbol", ""),
+                            "expiration":    exp_date.split(":")[0],
+                            "strike":        float(strike_str),
+                            "premium":       ask,
+                            "delta":         delta,
+                            "dte":           dte,
+                            "cost":          premium_cost,
+                        }
+
+        if not best_option:
+            return None
+
+        # Stop loss and take profit based on premium paid
+        entry    = best_option["premium"]
+        stop     = entry * (1 - self.stop_loss)     # e.g. exit at -30%
+        target   = entry * (1 + self.profit_target)  # e.g. exit at +50%
+
+        reasoning = (
+            f"Long call on breakout: buying ${best_option['strike']:.0f} call "
+            f"expiring {best_option['expiration']} ({best_option['dte']} DTE). "
+            f"Delta: {best_option['delta']:.2f}. "
+            f"Cost: ${best_option['cost']:.0f}/contract. "
+            f"Close at +{self.profit_target:.0%} gain or -{self.stop_loss:.0%} loss."
+        )
+
+        logger.info(
+            f"[SIGNAL] Long call: BUY {symbol} "
+            f"${best_option['strike']:.0f}C {best_option['expiration']} "
+            f"@ ${entry:.2f} (cost ${best_option['cost']:.0f})"
+        )
+
+        return OptionsSignal(
+            symbol=symbol,
+            direction="BUY",
+            asset_type="OPTION",
+            strategy_name="LongCalls",
+            entry_price=entry,
+            stop_loss=stop,
+            take_profit=target,
+            quantity=1,
+            reasoning=reasoning,
+            option_symbol=best_option["option_symbol"],
+            expiration=best_option["expiration"],
+            strike=best_option["strike"],
+            option_type="CALL",
+            delta=best_option["delta"],
+            premium_collected=0,
+            dte=best_option["dte"],
+        )

@@ -27,6 +27,7 @@ from src.risk_manager import RiskManager
 from src.portfolio import Portfolio
 from src.utils.market_hours import is_market_open, next_market_open
 from src.session_logger import SessionLogger
+from src.utils.market_regime import MarketRegimeDetector, Regime
 
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,9 @@ class TradingBot:
 
         # Session logger
         self.session_logger = SessionLogger(mode=settings.mode)
+
+        # Market regime detector
+        self.regime = MarketRegimeDetector()
 
     def _load_strategies(self):
         """Instantiate strategies based on settings."""
@@ -120,6 +124,9 @@ class TradingBot:
 
         logger.info("--- Running scan cycle ---")
 
+        # Update market regime once per cycle
+        self.regime.update(self.schwab)
+
         # ── Step 2: Refresh portfolio state ────────────────────────
         self.portfolio.refresh()
         logger.info(f"Portfolio: ${self.portfolio.cash:.2f} cash | "
@@ -136,6 +143,11 @@ class TradingBot:
         all_signals = []
         for strategy in self.strategies:
             try:
+                # Skip momentum/swing in bear market
+                sname = strategy.__class__.__name__
+                if sname in ("MomentumStrategy", "SwingTradeStrategy") and self.regime.is_bear():
+                    logger.info(f"{sname}: SKIPPED (bear market regime)")
+                    continue
                 signals = strategy.scan(
                     symbols=self.settings.strategy.stock_watchlist,
                     client=self.client

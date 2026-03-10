@@ -1,26 +1,37 @@
-# config/settings.yaml
-# ---------------------
-# Tune your bot's behavior here.
-# All values here override the defaults in config/settings.py
+# =============================================================
+# AlphaBot - config/settings.yaml
+# =============================================================
+# Edit this file to tune the bot's behavior.
+# No code changes needed -- just edit values and restart.
+# Full advisor guide: see ADVISOR_GUIDE.md
+# =============================================================
 
 risk:
-  max_position_size_pct: 0.05    # 5% of portfolio per trade
-  max_total_exposure_pct: 0.50   # Max 50% of portfolio deployed at once
-  stop_loss_pct: 0.02            # 2% stop loss
-  take_profit_pct: 0.04          # 4% take profit
-  max_daily_trades: 5            # Max 5 new entries per day
-  min_cash_reserve: 500.0        # Always keep $500 cash
+  max_position_size_pct: 0.05    # Max % of portfolio per trade (5% = $250 on $5K)
+  max_total_exposure_pct: 0.50   # Max % of portfolio deployed at once (50%)
+  stop_loss_pct: 0.02            # Auto-close if trade loses this much (2%)
+  take_profit_pct: 0.04          # Auto-close when trade gains this much (4%)
+  max_daily_trades: 5            # Max new entries per day
+  min_cash_reserve: 500.0        # Never deploy below this cash level ($)
 
 strategy:
+
+  # -- STOCK STRATEGIES ---------------------------------------
   use_momentum: true
   use_mean_reversion: true
+  use_swing_trade: true
+  use_day_trade: false           # Disabled by default (PDT rules)
+
+  # -- OPTIONS STRATEGIES -------------------------------------
   use_cash_secured_puts: true
-  use_long_calls: false          # Riskier — enable later
-  use_covered_calls: false       # Requires 100-share lots
+  use_long_calls: false          # Enable when market trending up strongly
+  use_covered_calls: false       # Requires 100 shares per contract
 
+  # -- AI FILTER ----------------------------------------------
   use_ai_filter: true
-  ai_confidence_threshold: 0.60  # Only trade if AI is 70%+ confident
+  ai_confidence_threshold: 0.70  # 0.60=more trades, 0.80=fewer/higher quality
 
+  # -- WATCHLIST ----------------------------------------------
   stock_watchlist:
     - SPY
     - QQQ
@@ -32,5 +43,26 @@ strategy:
     - META
     - TSLA
     - AMD
+  min_avg_volume: 1000000
 
-  min_avg_volume: 1000000        # Filter out thinly traded stocks
+  # -- DAY TRADE SETTINGS (use_day_trade: true) ---------------
+  day_trade_min_gap_pct: 0.02
+  day_trade_min_volume_surge: 2.0
+  day_trade_stop_loss_pct: 0.005
+  day_trade_take_profit_pct: 0.012
+  day_trade_max_per_day: 3
+
+  # -- SWING TRADE SETTINGS (use_swing_trade: true) -----------
+  swing_stop_loss_pct: 0.04
+  swing_take_profit_pct: 0.10
+  swing_rsi_min: 38
+  swing_rsi_max: 58
+
+  # -- LONG CALLS SETTINGS (use_long_calls: true) -------------
+  long_calls_dte_min: 21
+  long_calls_dte_max: 60
+  long_calls_delta_min: 0.35
+  long_calls_delta_max: 0.55
+  long_calls_max_premium: 500
+  long_calls_profit_target: 0.50
+  long_calls_stop_loss: 0.30
