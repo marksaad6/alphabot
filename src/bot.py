@@ -97,8 +97,10 @@ class TradingBot:
         # Schedule the main scan cycle every 5 minutes during market hours
         schedule.every(5).minutes.do(self._run_cycle)
 
-        # Schedule daily reset at market open
-        schedule.every().day.at("09:30").do(self._daily_reset)
+        # Schedule daily reset at 9:30 AM ET (6:30 AM PST)
+        # NOTE: schedule uses LOCAL time. Bot assumes PST/PDT.
+        # If running in ET timezone, change "06:30" back to "09:30"
+        schedule.every().day.at("06:30").do(self._daily_reset)
 
         # Schedule end-of-day position review
         schedule.every().day.at("15:45").do(self._end_of_day_review)
@@ -125,7 +127,7 @@ class TradingBot:
         logger.info("--- Running scan cycle ---")
 
         # Update market regime once per cycle
-        self.regime.update(self.schwab)
+        self.regime.update(self.client)
 
         # ── Step 2: Refresh portfolio state ────────────────────────
         self.portfolio.refresh()
@@ -167,15 +169,30 @@ class TradingBot:
         if self.settings.strategy.use_ai_filter:
             for signal in all_signals:
                 analysis = self.ai.analyze_signal(signal, self.client)
-                if analysis.confidence >= self.settings.strategy.ai_confidence_threshold:
+                if analysis.recommended_action == "SKIP" or analysis.confidence < self.settings.strategy.ai_confidence_threshold:
+                    logger.info(
+                        f"[NO] AI rejected {signal.symbol} -- "
+                        f"confidence: {analysis.confidence:.0%} | "
+                        f"{analysis.reasoning[:80]}"
+                    )
+                else:
+                    # REDUCE_SIZE: halve the position quantity
+                    if analysis.recommended_action == "REDUCE_SIZE":
+                        signal.quantity = max(1, signal.quantity // 2)
+                        logger.info(
+                            f"[OK] AI approved {signal.symbol} at HALF size -- "
+                            f"confidence: {analysis.confidence:.0%} | "
+                            f"{analysis.reasoning[:80]}"
+                        )
+                    else:
+                        logger.info(
+                            f"[OK] AI approved {signal.symbol} -- "
+                            f"confidence: {analysis.confidence:.0%} | "
+                            f"{analysis.reasoning[:80]}"
+                        )
                     signal.ai_confidence = analysis.confidence
                     signal.ai_reasoning = analysis.reasoning
                     validated_signals.append(signal)
-                    logger.info(f"[OK] AI approved {signal.symbol} ({signal.direction}) "
-                               f"-- confidence: {analysis.confidence:.0%}")
-                else:
-                    logger.info(f"[NO] AI rejected {signal.symbol} "
-                               f"-- confidence: {analysis.confidence:.0%}")
         else:
             validated_signals = all_signals
 

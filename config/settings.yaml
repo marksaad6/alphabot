@@ -33,6 +33,7 @@ strategy:
 
   # -- WATCHLIST ----------------------------------------------
   stock_watchlist:
+    # Large cap momentum/mean-reversion (used by all strategies)
     - SPY
     - QQQ
     - AAPL
@@ -43,6 +44,13 @@ strategy:
     - META
     - TSLA
     - AMD
+    # Affordable CSP symbols (under $50/share = under $5K collateral)
+    - BAC
+    - F
+    - SOFI
+    - PLTR
+    - INTC
+    - WBA
   min_avg_volume: 1000000
 
   # -- DAY TRADE SETTINGS (use_day_trade: true) ---------------

@@ -48,12 +48,23 @@ class ThetaOptionsStrategy:
     Target: ~70–80% win rate by selling 20-delta puts.
     """
 
-    # Best symbols for cash-secured puts:
-    # - High liquidity (tight spreads)
-    # - Stable large-caps, not hyper-volatile meme stocks
+    # Best symbols for cash-secured puts on a $5K account:
+    # - Stock price must be UNDER $50 so 100 shares < $5,000 collateral
+    # - High options liquidity (tight bid/ask spreads)
+    # - Stable enough to not gap 20% overnight
+    #
+    # Current affordable picks (all under $50/share as of Q1 2026):
+    #   BAC  - Bank of America      ~$44   -- liquid, stable, good premiums
+    #   F    - Ford                 ~$10   -- cheap, high volume options
+    #   SOFI - SoFi Technologies    ~$14   -- fintech, active options market
+    #   PLTR - Palantir             ~$40   -- volatile but liquid options
+    #   WBA  - Walgreens            ~$12   -- high yield premiums
+    #   INTC - Intel                ~$20   -- beaten down, good put premiums
+    #   WFC  - Wells Fargo          ~$72   -- slightly above $50 but add when >$5K
+    #
+    # As account grows past $10K, re-add: AAPL, AMD, NVDA, QQQ
     PREFERRED_SYMBOLS = [
-        "SPY", "QQQ", "AAPL", "MSFT", "AMZN",
-        "GOOGL", "NVDA", "AMD", "META"
+        "BAC", "F", "SOFI", "PLTR", "INTC", "WBA"
     ]
 
     def __init__(self, config):
@@ -157,7 +168,7 @@ class ThetaOptionsStrategy:
 
         # A cash-secured put requires having cash = strike * 100
         capital_required = best_option["strike"] * 100
-        if capital_required > 5000:  # Don't tie up more than $5K per trade
+        if capital_required > 4500:  # Keep each CSP under $4,500 (leave $500 cash reserve)
             logger.debug(f"{symbol}: Capital required ${capital_required:,.0f} too high")
             return None
 
